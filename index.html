@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solitario Clásico Realista</title>
+    <style>
+        body {
+            background-color: #1a3c34;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #game {
+            width: 1000px;
+            height: 700px;
+            position: relative;
+            border: 5px solid #d4af37;
+            border-radius: 15px;
+            background: radial-gradient(circle, #2e5c52, #1a3c34);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            padding: 20px;
+        }
+        .card {
+            width: 70px;
+            height: 100px;
+            background: white url('https://www.deckofcardsapi.com/static/img/back.png') center/cover;
+            border: 1px solid #666;
+            border-radius: 8px;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            user-select: none;
+        }
+        .card.face-up {
+            background: white;
+        }
+        .card.dragging {
+            opacity: 0.7;
+            box-shadow: 4px 4px 15px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        #deck {
+            left: 20px;
+            top: 20px;
+        }
+        #discard {
+            left: 110px;
+            top: 20px;
+        }
+        .foundation {
+            width: 70px;
+            height: 100px;
+            border: 2px dashed #d4af37;
+            border-radius: 8px;
+            position: absolute;
+            top: 20px;
+        }
+        #foundation1 { right: 230px; }
+        #foundation2 { right: 150px; }
+        #foundation3 { right: 70px; }
+        #foundation4 { right: -10px; }
+        .column {
+            position: absolute;
+            top: 150px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+            min-height: 100px;
+            width: 70px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        #col1 { left: 20px; }
+        #col2 { left: 110px; }
+        #col3 { left: 200px; }
+        #col4 { left: 290px; }
+        #col5 { left: 380px; }
+        #col6 { left: 470px; }
+        #col7 { left: 560px; }
+        .heart, .diamond { color: #e63946; }
+        .club, .spade { color: #1d3557; }
+        #debug {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game">
+        <div id="deck" class="card"></div>
+        <div id="discard" class="card"></div>
+        <div id="foundation1" class="foundation"></div>
+        <div id="foundation2" class="foundation"></div>
+        <div id="foundation3" class="foundation"></div>
+        <div id="foundation4" class="foundation"></div>
+        <div id="col1" class="column"></div>
+        <div id="col2" class="column"></div>
+        <div id="col3" class="column"></div>
+        <div id="col4" class="column"></div>
+        <div id="col5" class="column"></div>
+        <div id="col6" class="column"></div>
+        <div id="col7" class="column"></div>
+        <div id="debug"></div>
+    </div>
+
+    <script>
+        const suits = ['♥', '♦', '♣', '♠'];
+        const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+        let deck = [];
+        let discard = [];
+        let columns = [[], [], [], [], [], [], []];
+        let foundations = [[], [], [], []];
+        let draggedCards = [];
+        let draggedSource = null;
+        let draggedCardIndex = null;
+        let draggedSourceColIndex = null;
+
+        function createDeck() {
+            deck = [];
+            for (let suit of suits) {
+                for (let value of values) {
+                    deck.push({ suit, value, faceUp: false });
+                }
+            }
+            shuffle(deck);
+        }
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        function countBlackCards(array) {
+            return array.filter(card => card.suit === '♣' || card.suit === '♠').length;
+        }
+
+        function countRedCards(array) {
+            return array.filter(card => card.suit === '♥' || card.suit === '♦').length;
+        }
+
+        function startGame() {
+            createDeck();
+            for (let i = 0; i < 7; i++) {
+                for (let j = 0; j <= i; j++) {
+                    const card = deck.shift();
+                    card.faceUp = (j === i);
+                    columns[i].push(card);
+                }
+                renderColumn(i);
+            }
+            renderDeck();
+            document.getElementById('deck').onclick = drawCard;
+            setupDragAndDrop();
+            renderFoundations();
+            updateDebugInfo();
+            checkWinCondition();
+        }
+
+        function drawCard() {
+            if (deck.length > 0) {
+                const card = deck.shift();
+                card.faceUp = true;
+                discard.push(card);
+                renderDiscard();
+                renderDeck();
+            } else if (discard.length > 0) {
+                deck = discard;
+                discard = [];
+                deck.forEach(card => card.faceUp = false);
+                shuffle(deck);
+                renderDeck();
+                renderDiscard();
+            }
+            updateDebugInfo();
+            checkWinCondition();
+        }
+
+        function renderDeck() {
+            const deckElement = document.getElementById('deck');
+            deckElement.innerHTML = deck.length > 0 ? '' : '↺';
+            deckElement.className = 'card' + (deck.length === 0 ? ' face-up' : '');
+            deckElement.draggable = false;
+        }
+
+        function renderDiscard() {
+            const discardElement = document.getElementById('discard');
+            if (discard.length > 0) {
+                const card = discard[discard.length - 1];
+                discardElement.innerHTML = `${card.value}${card.suit}`;
+                discardElement.className = `card face-up ${card.suit === '♥' || card.suit === '♦' ? 'heart' : 'club'}`;
+                discardElement.draggable = true;
+                discardElement.dataset.source = 'discard';
+            } else {
+                discardElement.innerHTML = '';
+                discardElement.className = 'card';
+                discardElement.draggable = false;
+            }
+        }
+
+        function renderColumn(colIndex) {
+            const colElement = document.getElementById(`col${colIndex + 1}`);
+            colElement.innerHTML = '';
+            columns[colIndex].forEach((card, index) => {
+                const cardElement = document.createElement('div');
+                cardElement.className = `card ${card.faceUp ? 'face-up' : ''} ${card.suit === '♥' || card.suit === '♦' ? 'heart' : 'club'}`;
+                cardElement.innerHTML = card.faceUp ? `${card.value}${card.suit}` : '';
+                cardElement.style.top = `${index * 25}px`;
+                cardElement.draggable = card.faceUp;
+                cardElement.dataset.col = colIndex;
+                cardElement.dataset.source = 'column';
+                cardElement.dataset.index = index;
+                colElement.appendChild(cardElement);
+            });
+        }
+
+        function renderFoundations() {
+            for (let i = 0; i < 4; i++) {
+                const foundationElement = document.getElementById(`foundation${i + 1}`);
+                if (foundations[i].length > 0) {
+                    const card = foundations[i][foundations[i].length - 1];
+                    foundationElement.innerHTML = `<div class="card face-up ${card.suit === '♥' || card.suit === '♦' ? 'heart' : 'club'}" draggable="false">${card.value}${card.suit}</div>`;
+                } else {
+                    foundationElement.innerHTML = '';
+                }
+                foundationElement.dataset.foundation = i;
+            }
+        }
+
+        function updateDebugInfo() {
+            const totalColumns = columns.reduce((sum, col) => sum + col.length, 0);
+            const blackInColumns = countBlackCards(columns.flat());
+            const redInColumns = countRedCards(columns.flat());
+            const blackInDeck = countBlackCards(deck);
+            const redInDeck = countRedCards(deck);
+            const blackInDiscard = countBlackCards(discard);
+            const redInDiscard = countRedCards(discard);
+            const blackInFoundations = countBlackCards(foundations.flat());
+            const redInFoundations = countRedCards(foundations.flat());
+            document.getElementById('debug').innerHTML = `
+                Mazo: ${deck.length} (Rojas: ${redInDeck}, Negras: ${blackInDeck})<br>
+                Descarte: ${discard.length} (Rojas: ${redInDiscard}, Negras: ${blackInDiscard})<br>
+                Columnas: ${totalColumns} (Rojas: ${redInColumns}, Negras: ${blackInColumns})<br>
+                Fundaciones: ${foundations.reduce((sum, f) => sum + f.length, 0)} (Rojas: ${redInFoundations}, Negras: ${blackInFoundations})
+            `;
+        }
+
+        function checkWinCondition() {
+            const totalInFoundations = foundations.reduce((sum, f) => sum + f.length, 0);
+            if (totalInFoundations === 52) {
+                alert('¡Ganaste! Todas las cartas están en las fundaciones.');
+            }
+        }
+
+        function setupDragAndDrop() {
+            document.addEventListener('dragstart', (e) => {
+                const cardElement = e.target.closest('.card[draggable="true"]');
+                if (!cardElement) return;
+                const colIndex = cardElement.dataset.source === 'discard' ? null : parseInt(cardElement.dataset.col);
+                draggedCardIndex = cardElement.dataset.source === 'discard' ? null : parseInt(cardElement.dataset.index);
+                draggedSource = cardElement.dataset.source;
+                draggedSourceColIndex = colIndex;
+                draggedCards = draggedSource === 'discard' ? [discard[discard.length - 1]] : getSequence(colIndex, draggedCardIndex);
+                draggedCards.forEach((card, i) => {
+                    const el = draggedSource === 'discard' ? document.getElementById('discard') : document.querySelector(`#col${colIndex + 1} .card:nth-child(${draggedCardIndex + i + 1})`);
+                    if (el) el.classList.add('dragging');
+                });
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', '');
+            });
+
+            document.addEventListener('dragend', (e) => {
+                document.querySelectorAll('.card.dragging').forEach(card => card.classList.remove('dragging'));
+                draggedCards = [];
+                draggedSource = null;
+                draggedCardIndex = null;
+                draggedSourceColIndex = null;
+            });
+
+            const columns = document.querySelectorAll('.column');
+            columns.forEach(col => {
+                col.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                });
+                col.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    if (draggedCards.length > 0) {
+                        const colIndex = parseInt(col.id.replace('col', '')) - 1;
+                        moveToColumn(draggedCards, colIndex);
+                        draggedCards = [];
+                        draggedSource = null;
+                        draggedCardIndex = null;
+                        draggedSourceColIndex = null;
+                        updateDebugInfo();
+                    }
+                });
+            });
+
+            const foundations = document.querySelectorAll('.foundation');
+            foundations.forEach(foundation => {
+                foundation.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                });
+                foundation.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    if (draggedCards.length === 1) {
+                        const foundationIndex = parseInt(foundation.dataset.foundation);
+                        moveToFoundation(draggedCards[0], foundationIndex);
+                        draggedCards = [];
+                        draggedSource = null;
+                        draggedCardIndex = null;
+                        draggedSourceColIndex = null;
+                        updateDebugInfo();
+                    }
+                });
+            });
+        }
+
+        function getSequence(colIndex, startIndex) {
+            const col = columns[colIndex];
+            const sequence = [];
+            for (let i = startIndex; i < col.length; i++) {
+                if (!col[i].faceUp) break;
+                sequence.push(col[i]);
+                if (i > startIndex) {
+                    const prevCard = col[i - 1];
+                    const currCard = col[i];
+                    const prevValue = values.indexOf(prevCard.value);
+                    const currValue = values.indexOf(currCard.value);
+                    const prevIsRed = prevCard.suit === '♥' || prevCard.suit === '♦';
+                    const currIsRed = currCard.suit === '♥' || currCard.suit === '♦';
+                    if (currValue !== prevValue - 1 || prevIsRed === currIsRed) break;
+                }
+            }
+            return sequence;
+        }
+
+        function moveToColumn(cards, colIndex) {
+            if (cards.length === 0) return;
+            const topDraggedCard = cards[0];
+            const valueIndex = values.indexOf(topDraggedCard.value);
+            const col = columns[colIndex];
+            const topCard = col.length > 0 ? col[col.length - 1] : null;
+            const topValue = topCard ? values.indexOf(topCard.value) : null;
+            const isRed = topDraggedCard.suit === '♥' || topDraggedCard.suit === '♦';
+            const topIsRed = topCard ? (topCard.suit === '♥' || topCard.suit === '♦') : null;
+
+            if ((topCard === null && valueIndex === 12) || (topCard && valueIndex === topValue - 1 && isRed !== topIsRed)) {
+                const sourceColIndex = draggedSource === 'discard' ? null : draggedSourceColIndex;
+                const removed = removeCards(cards, sourceColIndex);
+                if (removed) {
+                    col.push(...cards);
+                    renderColumn(colIndex);
+                    if (sourceColIndex !== null) renderColumn(sourceColIndex);
+                    renderDiscard();
+                }
+            }
+        }
+
+        function moveToFoundation(card, foundationIndex) {
+            const valueIndex = values.indexOf(card.value);
+            const foundation = foundations[foundationIndex];
+            const topCard = foundation.length > 0 ? foundation[foundation.length - 1] : null;
+            const topValue = topCard ? values.indexOf(topCard.value) : -1;
+            const suit = card.suit;
+
+            // Si la fundación está vacía, permitir cualquier As
+            if (foundation.length === 0 && valueIndex === 0) {
+                const sourceColIndex = draggedSource === 'discard' ? null : draggedSourceColIndex;
+                const removed = removeCards([card], sourceColIndex);
+                if (removed) {
+                    foundation.push(card);
+                    renderFoundations();
+                    if (sourceColIndex !== null) renderColumn(sourceColIndex);
+                    renderDiscard();
+                }
+            } 
+            // Si ya hay cartas, validar palo y valor
+            else if (foundation.length > 0 && suit === foundation[0].suit && valueIndex === topValue + 1) {
+                const sourceColIndex = draggedSource === 'discard' ? null : draggedSourceColIndex;
+                const removed = removeCards([card], sourceColIndex);
+                if (removed) {
+                    foundation.push(card);
+                    renderFoundations();
+                    if (sourceColIndex !== null) renderColumn(sourceColIndex);
+                    renderDiscard();
+                }
+            }
+        }
+
+        function removeCards(cards, source) {
+            if (source === null) {
+                const discardTop = discard[discard.length - 1];
+                if (discard.length > 0 && discardTop.value === cards[0].value && discardTop.suit === cards[0].suit) {
+                    discard.pop();
+                    return true;
+                }
+                return false;
+            } else {
+                const col = columns[source];
+                if (draggedCardIndex >= 0 && draggedCardIndex < col.length) {
+                    const cardAtIndex = col[draggedCardIndex];
+                    if (cardAtIndex.value === cards[0].value && cardAtIndex.suit === cards[0].suit) {
+                        col.splice(draggedCardIndex, cards.length);
+                        if (col.length > 0) col[col.length - 1].faceUp = true;
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        startGame();
+    </script>
+</body>
+</html>
